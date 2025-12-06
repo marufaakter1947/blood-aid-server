@@ -8,8 +8,19 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "express": "^5.2.1"
-  }
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "mongodb": "^7.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marufaakter1947/blood-aid-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/marufaakter1947/blood-aid-server/issues"
+  },
+  "homepage": "https://github.com/marufaakter1947/blood-aid-server#readme",
+  "description": ""
 }
