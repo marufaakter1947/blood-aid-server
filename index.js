@@ -246,7 +246,7 @@ app.get("/users/role", async (req, res) => {
       res.send(requests);
     });
 // recent 3 request
-    app.get("/donation-requests/my", verifyJWT, async (req, res) => {
+    app.get("/donation-requests/recent", verifyJWT, async (req, res) => {
   try {
     const email = req.email;
 
@@ -262,6 +262,24 @@ app.get("/users/role", async (req, res) => {
     res.status(500).send({ message: "Failed to load requests" });
   }
 });
+
+// All my donation requests
+app.get("/donation-requests/my", verifyJWT, async (req, res) => {
+  try {
+    const email = req.email;
+
+    const result = await requestsCollection
+      .find({ requesterEmail: email })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Failed to fetch donation requests" });
+  }
+});
+
 
 // update donation status
 app.patch("/donation-requests/status/:id", verifyJWT, async (req, res) => {
