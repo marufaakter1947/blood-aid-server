@@ -364,6 +364,28 @@ app.patch("/donation-requests/confirm/:id", verifyJWT, async (req, res) => {
   }
 });
 
+// donation request
+app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const result = await requestsCollection.updateOne(
+      { _id: new ObjectId(id), requesterEmail: req.email },
+      { $set: updateData }
+    );
+
+    if (!result.modifiedCount) {
+      return res.status(404).send({ message: "Donation request not found or no changes made" });
+    }
+
+    const updatedRequest = await requestsCollection.findOne({ _id: new ObjectId(id) });
+    res.send({ success: true, data: updatedRequest });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to update donation request" });
+  }
+});
 
 
     /* ------------ Admin: All Users ------------ */
