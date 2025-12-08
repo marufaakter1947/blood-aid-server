@@ -94,7 +94,7 @@ admin.initializeApp({
 });
 
 /* ------------------ MongoDB ------------------ */
-const client = new MongoClient(process.env.MONGODB_URI);
+const client = new MongoClient(process.env.MONGO_URI);
 
 /* ------------------ JWT Verify ------------------ */
 const verifyJWT = async (req, res, next) => {
@@ -150,6 +150,17 @@ async function run() {
       res.send({ success: true });
     });
 
+// ---------users role----------
+app.get("/users/role", async (req, res) => {
+  const email = req.query.email; // frontend should send ?email=user@example.com
+  if (!email) return res.status(400).json({ success: false, message: "Email required" });
+
+  const user = await usersCollection.findOne({ email });
+  if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+  res.json({ success: true, role: user.role });
+});
+
     /* ------------ Get Logged-in User ------------ */
     app.get("/users/me", verifyJWT, async (req, res) => {
       const user = await usersCollection.findOne({ email: req.email });
@@ -180,15 +191,59 @@ async function run() {
 
     /* ------------ Donation Request ------------ */
     app.post("/donation-requests", verifyJWT, async (req, res) => {
-      const request = {
-        ...req.body,
-        requester: req.email,
-        status: "pending",
-        createdAt: new Date(),
-      };
+  try {
+    // Destructure all fields from the request body
+    const {
+      requesterName,
+      requesterEmail,
+      recipientName,
+      recipientDistrict,
+      recipientUpazila,
+      hospitalName,
+      address,
+      bloodGroup,
+      donationDate,
+      donationTime,
+      message,
+    } = req.body;
 
-      const result = await requestsCollection.insertOne(request);
-      res.send(result);
+    //check if user is blocked
+    const user = await usersCollection.findOne({ email: requesterEmail });
+    if (!user || user.status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "Blocked users cannot create donation requests",
+      });
+    }
+
+    const newRequest = {
+      requesterName,
+      requesterEmail,
+      recipientName,
+      recipientDistrict,
+      recipientUpazila,
+      hospitalName,
+      address,
+      bloodGroup,
+      donationDate,
+      donationTime,
+      message,
+      status: "pending", // default
+      createdAt: new Date(),
+    };
+
+    const result = await requestsCollection.insertOne(newRequest);
+    res.status(201).json({ success: true, data: newRequest });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+    // get all donation request
+    app.get("/donation-requests", verifyJWT, async (req, res) => {
+      const requests = await usersCollection.find().toArray();
+      res.send(requests);
     });
 
     /* ------------ Admin: All Users ------------ */
