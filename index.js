@@ -245,7 +245,7 @@ app.get("/users/role", async (req, res) => {
       const requests = await usersCollection.find().toArray();
       res.send(requests);
     });
-
+// recent 3 request
     app.get("/donation-requests/my", verifyJWT, async (req, res) => {
   try {
     const email = req.email;
@@ -262,6 +262,24 @@ app.get("/users/role", async (req, res) => {
     res.status(500).send({ message: "Failed to load requests" });
   }
 });
+
+// update donation status
+app.patch("/donation-requests/status/:id", verifyJWT, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["done", "canceled"].includes(status)) {
+    return res.status(400).send({ message: "Invalid status" });
+  }
+
+  const result = await requestsCollection.updateOne(
+    { _id: new ObjectId(id), requesterEmail: req.email },
+    { $set: { status } }
+  );
+
+  res.send(result);
+});
+
 
 
     /* ------------ Admin: All Users ------------ */
