@@ -368,7 +368,18 @@ app.patch("/donation-requests/confirm/:id", verifyJWT, async (req, res) => {
 app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const updateData = { ...req.body };
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid donation request ID" });
+    }
+
+    // Remove immutable fields
+    delete updateData._id;
+    delete updateData.requesterName;
+    delete updateData.requesterEmail;
+    delete updateData.status;
+    delete updateData.donorInfo;
 
     const result = await requestsCollection.updateOne(
       { _id: new ObjectId(id), requesterEmail: req.email },
@@ -382,10 +393,11 @@ app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
     const updatedRequest = await requestsCollection.findOne({ _id: new ObjectId(id) });
     res.send({ success: true, data: updatedRequest });
   } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to update donation request" });
+    console.error("PATCH donation request error:", err);
+    res.status(500).send({ message: "Failed to update donation request", error: err.message });
   }
 });
+
 
 
     /* ------------ Admin: All Users ------------ */
