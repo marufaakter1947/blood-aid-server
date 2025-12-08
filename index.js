@@ -280,6 +280,18 @@ app.patch("/donation-requests/status/:id", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
+// Delete donation requests
+app.delete("/donation-requests/:id", verifyJWT, async (req, res) => {
+  const { id } = req.params;
+
+  const result = await requestsCollection.deleteOne({
+    _id: new ObjectId(id),
+    requesterEmail: req.email,
+  });
+
+  res.send(result);
+});
+
 
 
     /* ------------ Admin: All Users ------------ */
