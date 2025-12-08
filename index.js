@@ -407,16 +407,33 @@ app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
     });
 
     /* ------------ Admin: Update Role ------------ */
-    app.patch("/admin/role", verifyJWT, verifyAdmin, async (req, res) => {
-      const { email, role } = req.body;
+   app.patch("/admin/role", verifyJWT, verifyAdmin, async (req, res) => {
+  const { email, role } = req.body;
 
-      const result = await usersCollection.updateOne(
-        { email },
-        { $set: { role } }
-      );
+  const allowedRoles = ["donor", "volunteer", "admin"];
+  if (!allowedRoles.includes(role)) {
+    return res.status(400).send({ message: "Invalid role" });
+  }
 
-      res.send(result);
-    });
+  // prevent admin demoting himself
+  if (req.decoded.email === email) {
+    return res
+      .status(403)
+      .send({ message: "You cannot change your own role" });
+  }
+
+  const result = await usersCollection.updateOne(
+    { email },
+    { $set: { role } }
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).send({ message: "User not found" });
+  }
+
+  res.send({ success: true, modifiedCount: result.modifiedCount });
+});
+
 
     console.log("✅ BloodAid Backend Connected");
   } finally {
