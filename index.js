@@ -328,6 +328,41 @@ app.get("/donation-requests/:id", verifyJWT, async (req, res) => {
     res.status(500).send({ message: "Failed to fetch request" });
   }
 });
+// update status
+app.patch("/donation-requests/confirm/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { donorName, donorEmail } = req.body;
+
+    const update = await requestsCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+        status: "pending", // ✅ only pending allowed
+      },
+      {
+        $set: {
+          status: "inprogress",
+          donorInfo: {
+            name: donorName,
+            email: donorEmail,
+          },
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    if (!update.modifiedCount) {
+      return res.status(400).send({
+        message: "Request already in progress or invalid",
+      });
+    }
+
+    res.send({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to confirm donation" });
+  }
+});
 
 
 
