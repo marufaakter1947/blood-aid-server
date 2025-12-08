@@ -65,194 +65,160 @@
 // }
 
 // run().catch(console.dir);
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const { MongoClient, ObjectId } = require('mongodb');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const { MongoClient, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(express.json());
+/* ------------------ Middleware ------------------ */
 app.use(
   cors({
-    origin: process.env.CLIENT_DOMAIN || '*',
+    origin: [process.env.CLIENT_DOMAIN],
+    credentials: true,
   })
 );
+app.use(express.json());
 
-// MongoDB connection
-const client = new MongoClient(process.env.MONGO_URI, {
-  serverApi: { version: '1', strict: true, deprecationErrors: true },
+/* ------------------ Firebase Admin ------------------ */
+const decoded = Buffer.from(
+  process.env.FB_SERVICE_KEY,
+  "base64"
+).toString("utf-8");
+
+admin.initializeApp({
+  credential: admin.credential.cert(JSON.parse(decoded)),
 });
+
+/* ------------------ MongoDB ------------------ */
+const client = new MongoClient(process.env.MONGODB_URI);
+
+/* ------------------ JWT Verify ------------------ */
+const verifyJWT = async (req, res, next) => {
+  const token = req?.headers?.authorization?.split(" ")[1];
+  if (!token) return res.status(401).send({ message: "Unauthorized" });
+
+  try {
+    const decodedUser = await admin.auth().verifyIdToken(token);
+    req.email = decodedUser.email;
+    next();
+  } catch (err) {
+    return res.status(401).send({ message: "Invalid Token" });
+  }
+};
 
 async function run() {
   try {
-    await client.connect();
-    console.log('MongoDB connected successfully');
+    const db = client.db("bloodAidDB");
+    const usersCollection = db.collection("users");
+    const requestsCollection = db.collection("donationRequests");
 
-    const db = client.db('bloodAidDB');
-    const usersCollection = db.collection('users');
-    const donationsCollection = db.collection('donations');
-
-    // -----------------------------
-    // JWT Middleware
-    // -----------------------------
-    const verifyJWT = (req, res, next) => {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
-      const token = authHeader.split(' ')[1];
-      jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-        if (err) return res.status(403).json({ error: 'Forbidden' });
-        req.user = decoded;
-        next();
-      });
-    };
-
-    // Admin check middleware
-    const verifyAdmin = (req, res, next) => {
-      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+    /* ------------ Role Middlewares ------------ */
+    const verifyAdmin = async (req, res, next) => {
+      const user = await usersCollection.findOne({ email: req.email });
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "Admin only" });
+      }
       next();
     };
 
-    // -----------------------------
-    // Auth Routes
-    // -----------------------------
-    app.post('/signup', async (req, res) => {
-      const { name, email, password, role = 'donor' } = req.body;
-      if (!name || !email || !password)
-        return res.status(400).json({ error: 'Name, email & password required' });
+    /* ------------ Save / Update User ------------ */
+    app.post("/users", async (req, res) => {
+      const user = req.body;
 
-      const existing = await usersCollection.findOne({ email });
-      if (existing) return res.status(400).json({ error: 'User already exists' });
+      const existing = await usersCollection.findOne({ email: user.email });
 
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const newUser = { name, email, password: hashedPassword, role, status: 'active', createdAt: new Date() };
-      await usersCollection.insertOne(newUser);
-
-      const token = jwt.sign({ email, role }, process.env.JWT_SECRET, { expiresIn: '1d' });
-      res.status(201).json({ token });
-    });
-
-    app.post('/login', async (req, res) => {
-      const { email, password } = req.body;
-      const user = await usersCollection.findOne({ email });
-      if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-      const match = await bcrypt.compare(password, user.password);
-      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-
-      const token = jwt.sign({ email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
-      res.json({ token });
-    });
-
-    // -----------------------------
-    // Users CRUD (Admin only)
-    // -----------------------------
-    app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
-      const { status } = req.query; // filter active/blocked
-      const query = status ? { status } : {};
-      const users = await usersCollection.find(query).toArray();
-      res.json(users);
-    });
-
-    app.patch('/users/:id/block', verifyJWT, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const result = await usersCollection.updateOne({ _id: ObjectId(id) }, { $set: { status: 'blocked' } });
-      res.json(result);
-    });
-
-    app.patch('/users/:id/unblock', verifyJWT, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const result = await usersCollection.updateOne({ _id: ObjectId(id) }, { $set: { status: 'active' } });
-      res.json(result);
-    });
-
-    app.patch('/users/:id/role', verifyJWT, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const { role } = req.body; // donor, volunteer, admin
-      const result = await usersCollection.updateOne({ _id: ObjectId(id) }, { $set: { role } });
-      res.json(result);
-    });
-
-    // -----------------------------
-    // Donation Requests CRUD
-    // -----------------------------
-    // Get all donations (Admin) or own donations (Donor)
-    app.get('/donations', verifyJWT, async (req, res) => {
-      const { status, page = 1, limit = 10 } = req.query;
-      const query = {};
-
-      if (status) query.status = status;
-
-      // Donor can see only their own donations
-      if (req.user.role === 'donor') query.createdBy = req.user.email;
-
-      const donations = await donationsCollection
-        .find(query)
-        .skip((page - 1) * parseInt(limit))
-        .limit(parseInt(limit))
-        .toArray();
-      res.json(donations);
-    });
-
-    // Create donation (Donor only & active)
-    app.post('/donations', verifyJWT, async (req, res) => {
-      if (req.user.role !== 'donor') return res.status(403).json({ error: 'Donor only' });
-
-      const user = await usersCollection.findOne({ email: req.user.email });
-      if (user.status !== 'active') return res.status(403).json({ error: 'Blocked user cannot create requests' });
-
-      const donation = { ...req.body, createdBy: req.user.email, status: 'pending', createdAt: new Date() };
-      const result = await donationsCollection.insertOne(donation);
-      res.status(201).json(result);
-    });
-
-    // Update donation request (Donor owns it / Admin all / Volunteer status only)
-    app.patch('/donations/:id', verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      const donation = await donationsCollection.findOne({ _id: ObjectId(id) });
-      if (!donation) return res.status(404).json({ error: 'Donation not found' });
-
-      // Permissions
-      if (req.user.role === 'donor' && donation.createdBy !== req.user.email)
-        return res.status(403).json({ error: 'Not allowed' });
-
-      if (req.user.role === 'volunteer') {
-        // Volunteer can update only status
-        const { status } = req.body;
-        if (!status) return res.status(400).json({ error: 'Status required' });
-        const result = await donationsCollection.updateOne({ _id: ObjectId(id) }, { $set: { status } });
-        return res.json(result);
+      if (existing) {
+        await usersCollection.updateOne(
+          { email: user.email },
+          { $set: { lastLogin: new Date() } }
+        );
+        return res.send({ success: true });
       }
 
-      // Admin & Donor (owner) can update all fields
-      const updates = { ...req.body };
-      delete updates._id;
-      const result = await donationsCollection.updateOne({ _id: ObjectId(id) }, { $set: updates });
-      res.json(result);
+      const newUser = {
+        ...user,
+        role: "donor",
+        status: "active",
+        createdAt: new Date(),
+      };
+
+      await usersCollection.insertOne(newUser);
+      res.send({ success: true });
     });
 
-    // Delete donation (Donor owns it / Admin)
-    app.delete('/donations/:id', verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      const donation = await donationsCollection.findOne({ _id: ObjectId(id) });
-      if (!donation) return res.status(404).json({ error: 'Donation not found' });
-
-      if (req.user.role === 'donor' && donation.createdBy !== req.user.email)
-        return res.status(403).json({ error: 'Not allowed' });
-
-      const result = await donationsCollection.deleteOne({ _id: ObjectId(id) });
-      res.json(result);
+    /* ------------ Get Logged-in User ------------ */
+    app.get("/users/me", verifyJWT, async (req, res) => {
+      const user = await usersCollection.findOne({ email: req.email });
+      res.send(user);
     });
 
-    app.listen(port, () => {
-      console.log(`Blood Aid Application listening on port ${port}`);
+    /* ------------ Update Profile ------------ */
+    app.patch("/users/profile", verifyJWT, async (req, res) => {
+      const updateData = req.body;
+
+      const result = await usersCollection.updateOne(
+        { email: req.email },
+        { $set: updateData }
+      );
+
+      res.send(result);
     });
-  } catch (err) {
-    console.error('MongoDB connection failed', err);
+
+    /* ------------ Get All Donors ------------ */
+    app.get("/donors", async (req, res) => {
+      const result = await usersCollection
+        .find({ role: "donor", status: "active" })
+        .project({ password: 0 })
+        .toArray();
+
+      res.send(result);
+    });
+
+    /* ------------ Donation Request ------------ */
+    app.post("/donation-requests", verifyJWT, async (req, res) => {
+      const request = {
+        ...req.body,
+        requester: req.email,
+        status: "pending",
+        createdAt: new Date(),
+      };
+
+      const result = await requestsCollection.insertOne(request);
+      res.send(result);
+    });
+
+    /* ------------ Admin: All Users ------------ */
+    app.get("/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
+      const users = await usersCollection.find().toArray();
+      res.send(users);
+    });
+
+    /* ------------ Admin: Update Role ------------ */
+    app.patch("/admin/role", verifyJWT, verifyAdmin, async (req, res) => {
+      const { email, role } = req.body;
+
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: { role } }
+      );
+
+      res.send(result);
+    });
+
+    console.log("✅ BloodAid Backend Connected");
+  } finally {
   }
 }
+run();
 
-run().catch(console.dir);
+app.get("/", (req, res) => {
+  res.send("BloodAid Server Running");
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
