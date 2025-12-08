@@ -309,6 +309,25 @@ app.delete("/donation-requests/:id", verifyJWT, async (req, res) => {
 
   res.send(result);
 });
+// get single donation request
+app.get("/donation-requests/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const request = await requestsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!request) {
+      return res.status(404).send({ message: "Request not found" });
+    }
+
+    res.send(request);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to fetch request" });
+  }
+});
 
 
 
