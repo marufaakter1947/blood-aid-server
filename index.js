@@ -246,6 +246,24 @@ app.get("/users/role", async (req, res) => {
       res.send(requests);
     });
 
+    app.get("/donation-requests/my", verifyJWT, async (req, res) => {
+  try {
+    const email = req.email;
+
+    const requests = await requestsCollection
+      .find({ requesterEmail: email })
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .toArray();
+
+    res.send(requests);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to load requests" });
+  }
+});
+
+
     /* ------------ Admin: All Users ------------ */
     app.get("/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
       const users = await usersCollection.find().toArray();
