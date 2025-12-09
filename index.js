@@ -63,6 +63,8 @@ async function run() {
 
   const existing = await usersCollection.findOne({ email: user.email });
 
+  
+
   if (existing) {
     await usersCollection.updateOne(
       { email: user.email },
@@ -89,6 +91,22 @@ async function run() {
   await usersCollection.insertOne(newUser);
   res.send({ success: true });
 });
+
+// inside your run() function, after usersCollection is defined
+
+const verifyAdminOrVolunteer = async (req, res, next) => {
+  const user = await usersCollection.findOne({ email: req.email });
+
+  if (!user) return res.status(401).send({ message: "Unauthorized" });
+
+  if (user.role === "admin" || user.role === "volunteer") {
+    req.userRole = user.role; // save role for later use
+    return next();
+  }
+
+  return res.status(403).send({ message: "Forbidden" });
+};
+
 
 
 // ---------users role----------
@@ -221,24 +239,6 @@ app.get("/donation-requests/my", verifyJWT, async (req, res) => {
   }
 });
 
-
-// update donation status
-app.patch("/donation-requests/status/:id", verifyJWT, async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  if (!["done", "canceled"].includes(status)) {
-    return res.status(400).send({ message: "Invalid status" });
-  }
-
-  const result = await requestsCollection.updateOne(
-    { _id: new ObjectId(id), requesterEmail: req.email },
-    { $set: { status } }
-  );
-
-  res.send(result);
-});
-
 // Delete donation requests
 app.delete("/donation-requests/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
@@ -267,41 +267,6 @@ app.get("/donation-requests/:id", verifyJWT, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send({ message: "Failed to fetch request" });
-  }
-});
-// update status
-app.patch("/donation-requests/confirm/:id", verifyJWT, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { donorName, donorEmail } = req.body;
-
-    const update = await requestsCollection.updateOne(
-      {
-        _id: new ObjectId(id),
-        status: "pending", // ✅ only pending allowed
-      },
-      {
-        $set: {
-          status: "inprogress",
-          donorInfo: {
-            name: donorName,
-            email: donorEmail,
-          },
-          updatedAt: new Date(),
-        },
-      }
-    );
-
-    if (!update.modifiedCount) {
-      return res.status(400).send({
-        message: "Request already in progress or invalid",
-      });
-    }
-
-    res.send({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to confirm donation" });
   }
 });
 
@@ -338,10 +303,23 @@ app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
 
 
     /* ------------ Admin: All Users ------------ */
-    app.get("/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
-      const users = await usersCollection.find().toArray();
-      res.send(users);
-    });
+app.get("/admin/users", verifyJWT, verifyAdminOrVolunteer, async (req, res) => {
+  try {
+    if (req.userRole === "admin") {
+      const users = await usersCollection.find().toArray(); // full data for admin
+      return res.send(users);
+    } else if (req.userRole === "volunteer") {
+      const users = await usersCollection
+        .find({}, { projection: { _id: 1, name: 1, email: 1, role: 1 } }) // limited fields
+        .toArray();
+      return res.send(users);
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send({ message: "Failed to fetch users" });
+  }
+});
+
 
     /* ------------ Admin: Update Role ------------ */
    app.patch("/admin/role", verifyJWT, verifyAdmin, async (req, res) => {
@@ -391,19 +369,68 @@ app.patch("/admin/status", verifyJWT, verifyAdmin, async (req, res) => {
 
 
 // total donation requests
-app.get("/admin/donation-requests/count", verifyJWT, verifyAdmin, async (req, res) => {
-  try {
-    const count = await requestsCollection.countDocuments();
-    res.send({ count });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: "Failed to get donation requests count" });
+app.get("/admin/donation-requests/count", verifyJWT, verifyAdminOrVolunteer, async (req, res) => {
+  const count = await requestsCollection.countDocuments();
+  res.send({ count });
+});
+
+
+app.patch("/donation-requests/update-status/:id", verifyJWT, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["inprogress", "done", "canceled"].includes(status)) {
+    return res.status(400).json({ success: false, message: "Invalid status" });
   }
+
+  const user = await usersCollection.findOne({ email: req.email });
+  if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+  const request = await requestsCollection.findOne({ _id: new ObjectId(id) });
+  if (!request) return res.status(404).json({ success: false, message: "Request not found" });
+
+  // ---------- Rules ----------
+  if (user.role === "donor") {
+    // donor can only update their own requests
+    if (request.requesterEmail !== req.email) {
+      return res.status(403).json({ success: false, message: "Not allowed" });
+    }
+    if (request.status !== "inprogress") {
+      return res.status(400).json({ success: false, message: "Can only update inprogress requests" });
+    }
+  }
+
+  if (user.role === "volunteer") {
+    // volunteer can update any request inprogress
+    if (request.status !== "inprogress") {
+      return res.status(400).json({ success: false, message: "Can only update inprogress requests" });
+    }
+  }
+
+  if (user.role === "admin") {
+    // admin can confirm pending → inprogress
+    // admin can mark inprogress → done / canceled
+    if (request.status === "pending" && status === "inprogress") {
+      // allowed
+    } else if (request.status === "inprogress" && ["done", "canceled"].includes(status)) {
+      // allowed
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid status change" });
+    }
+  }
+
+  // Update status
+  const result = await requestsCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { status, updatedAt: new Date() } }
+  );
+
+  res.json({ success: true, modifiedCount: result.modifiedCount });
 });
 
 
 
-    console.log("✅ BloodAid Backend Connected");
+    console.log("BloodAid Backend Connected");
   } finally {
   }
 }
