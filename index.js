@@ -499,7 +499,7 @@ app.post("/api/funding/create-checkout-session", async (req, res) => {
             product_data: {
               name: `Donation by ${name || "Anonymous"}`,
             },
-            unit_amount: amount * 100, // Stripe expects amount in paisa (BDT*100)
+            unit_amount:Math.round(amount * 100) , // Stripe expects amount in paisa (BDT*100)
           },
           quantity: 1,
         },
