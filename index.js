@@ -515,6 +515,40 @@ app.post("/api/funding/create-checkout-session", async (req, res) => {
     res.status(500).json({ message: "Stripe session creation failed" });
   }
 });
+// Confirm Stripe payment after checkout
+app.post("/api/funding/confirm-payment", async (req, res) => {
+  const { sessionId } = req.body;
+  if (!sessionId) return res.status(400).json({ success: false, message: "Session ID required" });
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid") {
+      return res.status(400).json({ success: false, message: "Payment not completed" });
+    }
+
+    const db = client.db("bloodAidDB");
+    const fundsCollection = db.collection("funds");
+
+    // Check if already saved
+    const existing = await fundsCollection.findOne({ sessionId });
+    if (existing) return res.json({ success: true, message: "Already recorded" });
+
+    const newFund = {
+      name: session.customer_details?.name || "Anonymous",
+      email: session.customer_details?.email || "",
+      amount: session.amount_total / 100,
+      date: new Date().toISOString().split("T")[0],
+      sessionId,
+    };
+
+    await fundsCollection.insertOne(newFund);
+    res.json({ success: true, data: newFund });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Payment verification failed" });
+  }
+});
+
 // POST /api/funding/record-payment
 app.post("/api/funding/record-payment", async (req, res) => {
   try {
