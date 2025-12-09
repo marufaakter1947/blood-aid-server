@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const admin = require("firebase-admin");
 
 const app = express();
@@ -85,6 +86,10 @@ async function run() {
     photoURL: user.avatar || "https://i.ibb.co/4pDNDk1/avatar.png",
     role: "donor",
     status: "active",
+    bloodGroup: user.bloodGroup,
+  district: user.district,
+  upazila: user.upazila,
+  phone: user.phone,
     createdAt: new Date(),
   };
 
@@ -147,6 +152,38 @@ app.get("/users/role", async (req, res) => {
 
       res.send(result);
     });
+
+    // Search donors (PUBLIC)
+app.get("/donors/search", async (req, res) => {
+  try {
+    const { bloodGroup, district, upazila } = req.query;
+
+    const query = {
+      role: "donor",
+      status: "active",
+    };
+
+    if (bloodGroup) {
+      query.bloodGroup = bloodGroup;
+    }
+
+    if (district) {
+      query.district = district;
+    }
+
+    if (upazila) {
+      query.upazila = upazila;
+    }
+
+    const donors = await usersCollection.find(query).toArray();
+
+    res.json(donors);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to fetch donors" });
+  }
+});
+
 
     /* ------------ Donation Request ------------ */
     app.post("/donation-requests", verifyJWT, async (req, res) => {
@@ -442,6 +479,78 @@ app.patch("/donation-requests/update-status/:id", verifyJWT, async (req, res) =>
   );
 
   res.json({ success: true, modifiedCount: result.modifiedCount });
+});
+
+// Funding endpoints
+// Create a Stripe checkout session
+app.post("/api/funding/create-checkout-session", async (req, res) => {
+  try {
+    const { amount, name } = req.body; // amount in BDT or convert to smallest currency unit
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: "Invalid amount" });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "bdt",
+            product_data: {
+              name: `Donation by ${name || "Anonymous"}`,
+            },
+            unit_amount: amount * 100, // Stripe expects amount in paisa (BDT*100)
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: `${process.env.CLIENT_DOMAIN}/funding/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_DOMAIN}/funding/cancel`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Stripe session creation failed" });
+  }
+});
+// POST /api/funding/record-payment
+app.post("/api/funding/record-payment", async (req, res) => {
+  try {
+    const { name, amount } = req.body;
+
+    if (!name || !amount) return res.status(400).json({ message: "Invalid data" });
+
+    const newFund = {
+      name,
+      amount,
+      date: new Date().toISOString().split("T")[0], // yyyy-mm-dd
+    };
+
+    const db = client.db("bloodAidDB");
+    const fundsCollection = db.collection("funds");
+
+    await fundsCollection.insertOne(newFund);
+
+    res.json({ success: true, data: newFund });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to record payment" });
+  }
+});
+
+// GET /api/funding
+app.get("/api/funding", async (req, res) => {
+  try {
+    const db = client.db("bloodAidDB");
+    const fundsCollection = db.collection("funds");
+    const funds = await fundsCollection.find().sort({ date: -1 }).toArray();
+    res.json(funds);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch funds" });
+  }
 });
 
 
