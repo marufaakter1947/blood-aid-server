@@ -239,6 +239,22 @@ app.get("/donation-requests/my", verifyJWT, async (req, res) => {
   }
 });
 
+// Public route → no auth required, only pending requests
+app.get("/donation-requests/public", async (req, res) => {
+  try {
+    const requests = await requestsCollection
+      .find({ status: "pending" })  // only pending requests
+      .sort({ donationDate: 1 })    // upcoming dates first
+      .toArray();
+
+    res.json(requests);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch donation requests" });
+  }
+});
+
+
 // Delete donation requests
 app.delete("/donation-requests/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
