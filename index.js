@@ -1,70 +1,3 @@
-// require('dotenv').config(); // <-- load .env first
-// const express = require('express');
-// const cors = require('cors');
-// const { MongoClient } = require('mongodb');
-
-// const app = express();
-// const port = process.env.PORT || 5000;
-// app.use(express.json());
-
-// app.use(
-//   cors({
-//     origin: process.env.CLIENT_DOMAIN || '*',
-//   })
-// );
-
-// // MongoDB connection
-// const uri = process.env.MONGO_URI;
-
-// if (!uri) {
-//   console.error('MongoDB URI is not defined in .env');
-//   process.exit(1);
-// }
-
-// const client = new MongoClient(uri, {
-//   serverApi: { version: '1', strict: true, deprecationErrors: true },
-// });
-
-// async function run() {
-//   try {
-//     await client.connect();
-//     console.log('MongoDB connected successfully');
-
-//     const db = client.db('bloodAidDB');
-//     const usersCollection = db.collection('users');
-
-//     // Test route
-//     app.get('/', (req, res) => {
-//       res.send('Blood Aid Server is Running');
-//     });
-
-//     // POST /users route
-//     app.post('/users', async (req, res) => {
-//       try {
-//         const user = req.body;
-
-//         // Simple validation
-//         if (!user.email || !user.name) {
-//           return res.status(400).json({ error: 'Name and email are required' });
-//         }
-
-//         const result = await usersCollection.insertOne(user);
-//         res.status(201).json(result);
-//       } catch (err) {
-//         console.error(err);
-//         res.status(500).json({ error: 'Failed to create user' });
-//       }
-//     });
-
-//     app.listen(port, () => {
-//       console.log(`Blood Aid Application listening on port ${port}`);
-//     });
-//   } catch (err) {
-//     console.error('MongoDB connection failed', err);
-//   }
-// }
-
-// run().catch(console.dir);
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -125,30 +58,38 @@ async function run() {
       next();
     };
 
-    /* ------------ Save / Update User ------------ */
     app.post("/users", async (req, res) => {
-      const user = req.body;
+  const user = req.body;
 
-      const existing = await usersCollection.findOne({ email: user.email });
+  const existing = await usersCollection.findOne({ email: user.email });
 
-      if (existing) {
-        await usersCollection.updateOne(
-          { email: user.email },
-          { $set: { lastLogin: new Date() } }
-        );
-        return res.send({ success: true });
+  if (existing) {
+    await usersCollection.updateOne(
+      { email: user.email },
+      {
+        $set: {
+          lastLogin: new Date(),
+          name: user.name,
+          photoURL: user.photoURL || existing.photoURL || "",
+        },
       }
+    );
+    return res.send({ success: true });
+  }
 
-      const newUser = {
-        ...user,
-        role: "donor",
-        status: "active",
-        createdAt: new Date(),
-      };
+  const newUser = {
+    name: user.name,
+    email: user.email,
+    photoURL: user.avatar || "https://i.ibb.co/4pDNDk1/avatar.png",
+    role: "donor",
+    status: "active",
+    createdAt: new Date(),
+  };
 
-      await usersCollection.insertOne(newUser);
-      res.send({ success: true });
-    });
+  await usersCollection.insertOne(newUser);
+  res.send({ success: true });
+});
+
 
 // ---------users role----------
 app.get("/users/role", async (req, res) => {
@@ -242,7 +183,7 @@ app.get("/users/role", async (req, res) => {
 
     // get all donation request
     app.get("/donation-requests", verifyJWT, async (req, res) => {
-      const requests = await usersCollection.find().toArray();
+      const requests = await requestsCollection.find().toArray();
       res.send(requests);
     });
 // recent 3 request
@@ -366,36 +307,32 @@ app.patch("/donation-requests/confirm/:id", verifyJWT, async (req, res) => {
 
 // donation request
 app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updateData = { ...req.body };
+  const { id } = req.params;
+  const updateData = { ...req.body };
 
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).send({ message: "Invalid donation request ID" });
-    }
-
-    // Remove immutable fields
-    delete updateData._id;
-    delete updateData.requesterName;
-    delete updateData.requesterEmail;
-    delete updateData.status;
-    delete updateData.donorInfo;
-
-    const result = await requestsCollection.updateOne(
-      { _id: new ObjectId(id), requesterEmail: req.email },
-      { $set: updateData }
-    );
-
-    if (!result.modifiedCount) {
-      return res.status(404).send({ message: "Donation request not found or no changes made" });
-    }
-
-    const updatedRequest = await requestsCollection.findOne({ _id: new ObjectId(id) });
-    res.send({ success: true, data: updatedRequest });
-  } catch (err) {
-    console.error("PATCH donation request error:", err);
-    res.status(500).send({ message: "Failed to update donation request", error: err.message });
+  // check if user is admin
+  const user = await usersCollection.findOne({ email: req.email });
+  const filter = { _id: new ObjectId(id) };
+  
+  if (user.role !== "admin") {
+    filter.requesterEmail = req.email;
   }
+
+  // remove immutable fields
+  delete updateData._id;
+  delete updateData.requesterName;
+  delete updateData.requesterEmail;
+  delete updateData.status;
+  delete updateData.donorInfo;
+
+  const result = await requestsCollection.updateOne(filter, { $set: updateData });
+
+  if (!result.modifiedCount) {
+    return res.status(404).send({ message: "Donation request not found or no changes made" });
+  }
+
+  const updatedRequest = await requestsCollection.findOne({ _id: new ObjectId(id) });
+  res.send({ success: true, data: updatedRequest });
 });
 
 
@@ -416,12 +353,9 @@ app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
   }
 
   // prevent admin demoting himself
-  if (req.decoded.email === email) {
-    return res
-      .status(403)
-      .send({ message: "You cannot change your own role" });
-  }
-
+  if (req.email === email) {
+  return res.status(403).send({ message: "You cannot change your own role" });
+}
   const result = await usersCollection.updateOne(
     { email },
     { $set: { role } }
@@ -433,6 +367,28 @@ app.patch("/donation-requests/:id", verifyJWT, async (req, res) => {
 
   res.send({ success: true, modifiedCount: result.modifiedCount });
 });
+
+/* ------------ Admin: Update Status ------------ */
+app.patch("/admin/status", verifyJWT, verifyAdmin, async (req, res) => {
+  const { email, status } = req.body;
+
+  const allowedStatus = ["active", "blocked"];
+  if (!allowedStatus.includes(status)) {
+    return res.status(400).send({ message: "Invalid status" });
+  }
+
+  const result = await usersCollection.updateOne(
+    { email },
+    { $set: { status } }
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).send({ message: "User not found" });
+  }
+
+  res.send({ success: true, modifiedCount: result.modifiedCount });
+});
+
 
 
     console.log("✅ BloodAid Backend Connected");
