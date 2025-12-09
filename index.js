@@ -390,6 +390,18 @@ app.patch("/admin/status", verifyJWT, verifyAdmin, async (req, res) => {
 });
 
 
+// total donation requests
+app.get("/admin/donation-requests/count", verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    const count = await requestsCollection.countDocuments();
+    res.send({ count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to get donation requests count" });
+  }
+});
+
+
 
     console.log("✅ BloodAid Backend Connected");
   } finally {
