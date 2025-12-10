@@ -59,43 +59,7 @@ async function run() {
       next();
     };
 
-//     app.post("/users", async (req, res) => {
-//   const user = req.body;
 
-//   const existing = await usersCollection.findOne({ email: user.email });
-
-  
-
-//   if (existing) {
-//     await usersCollection.updateOne(
-//       { email: user.email },
-//       {
-//         $set: {
-//           lastLogin: new Date(),
-//           name: user.name,
-//           photoURL: user.photoURL || existing.photoURL || "",
-//         },
-//       }
-//     );
-//     return res.send({ success: true });
-//   }
-
-//   const newUser = {
-//     name: user.name,
-//     email: user.email,
-//     photoURL: user.avatar || "https://i.ibb.co/4pDNDk1/avatar.png",
-//     role: "donor",
-//     status: "active",
-//     bloodGroup: user.bloodGroup,
-//   district: user.district,
-//   upazila: user.upazila,
-//   phone: user.phone,
-//     createdAt: new Date(),
-//   };
-
-//   await usersCollection.insertOne(newUser);
-//   res.send({ success: true });
-// });
 app.post("/users", async (req, res) => {
   const user = req.body;
 
@@ -103,7 +67,7 @@ app.post("/users", async (req, res) => {
 
   const updateDoc = {
     name: user.name,
-    photoURL: user.avatar || user.photoURL || "",
+    photoURL: user.photoURL || user.avatar || "",
     role: user.role || "donor",
     status: user.status || "active",
     bloodGroup: user.bloodGroup,
