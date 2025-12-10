@@ -664,7 +664,7 @@ async function run() {
       }
     });
 
-    console.log("BloodAid Backend Connected");
+    console.log("BloodAid Server Running ");
   } finally {
   }
 }
