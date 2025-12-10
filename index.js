@@ -296,13 +296,29 @@ app.get("/donation-requests/public", async (req, res) => {
 app.delete("/donation-requests/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
 
-  const result = await requestsCollection.deleteOne({
-    _id: new ObjectId(id),
-    requesterEmail: req.email,
-  });
+  const user = await usersCollection.findOne({ email: req.email });
+  if (!user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
 
-  res.send(result);
+  const query = { _id: new ObjectId(id) };
+
+  if (user.role !== "admin") {
+    query.requesterEmail = req.email;
+  }
+
+  const result = await requestsCollection.deleteOne(query);
+
+  if (result.deletedCount === 0) {
+    return res.status(403).json({
+      message: "Not allowed or already deleted",
+    });
+  }
+
+  res.json({ success: true });
 });
+
+
 // get single donation request
 app.get("/donation-requests/:id", verifyJWT, async (req, res) => {
   try {
