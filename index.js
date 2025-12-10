@@ -59,42 +59,75 @@ async function run() {
       next();
     };
 
-    app.post("/users", async (req, res) => {
+//     app.post("/users", async (req, res) => {
+//   const user = req.body;
+
+//   const existing = await usersCollection.findOne({ email: user.email });
+
+  
+
+//   if (existing) {
+//     await usersCollection.updateOne(
+//       { email: user.email },
+//       {
+//         $set: {
+//           lastLogin: new Date(),
+//           name: user.name,
+//           photoURL: user.photoURL || existing.photoURL || "",
+//         },
+//       }
+//     );
+//     return res.send({ success: true });
+//   }
+
+//   const newUser = {
+//     name: user.name,
+//     email: user.email,
+//     photoURL: user.avatar || "https://i.ibb.co/4pDNDk1/avatar.png",
+//     role: "donor",
+//     status: "active",
+//     bloodGroup: user.bloodGroup,
+//   district: user.district,
+//   upazila: user.upazila,
+//   phone: user.phone,
+//     createdAt: new Date(),
+//   };
+
+//   await usersCollection.insertOne(newUser);
+//   res.send({ success: true });
+// });
+app.post("/users", async (req, res) => {
   const user = req.body;
 
   const existing = await usersCollection.findOne({ email: user.email });
 
-  
+  const updateDoc = {
+    name: user.name,
+    photoURL: user.avatar || user.photoURL || "",
+    role: user.role || "donor",
+    status: user.status || "active",
+    bloodGroup: user.bloodGroup,
+    district: user.district,
+    upazila: user.upazila,
+    lastLogin: new Date(),
+  };
 
   if (existing) {
     await usersCollection.updateOne(
       { email: user.email },
-      {
-        $set: {
-          lastLogin: new Date(),
-          name: user.name,
-          photoURL: user.photoURL || existing.photoURL || "",
-        },
-      }
+      { $set: updateDoc }
     );
-    return res.send({ success: true });
+    return res.send({ success: true, updated: true });
   }
 
   const newUser = {
-    name: user.name,
     email: user.email,
-    photoURL: user.avatar || "https://i.ibb.co/4pDNDk1/avatar.png",
-    role: "donor",
-    status: "active",
-    bloodGroup: user.bloodGroup,
-  district: user.district,
-  upazila: user.upazila,
-  phone: user.phone,
     createdAt: new Date(),
+    ...updateDoc,
   };
 
   await usersCollection.insertOne(newUser);
-  res.send({ success: true });
+  res.send({ success: true, created: true });
 });
 
 // inside your run() function, after usersCollection is defined
