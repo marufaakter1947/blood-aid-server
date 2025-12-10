@@ -91,6 +91,18 @@ async function run() {
       res.send({ success: true, created: true });
     });
 
+    // Return all users
+    app.get("/users", async (req, res) => {
+      try {
+        const usersCollection = client.db("bloodAidDB").collection("users");
+        const users = await usersCollection.find().toArray(); // full data
+        res.json(users);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch users" });
+      }
+    });
+
     const verifyAdminOrVolunteer = async (req, res, next) => {
       const user = await usersCollection.findOne({ email: req.email });
 
@@ -482,23 +494,19 @@ async function run() {
               .json({ success: false, message: "Not allowed" });
           }
           if (request.status !== "inprogress") {
-            return res
-              .status(400)
-              .json({
-                success: false,
-                message: "Can only update inprogress requests",
-              });
+            return res.status(400).json({
+              success: false,
+              message: "Can only update inprogress requests",
+            });
           }
         }
 
         if (user.role === "volunteer") {
           if (request.status !== "inprogress") {
-            return res
-              .status(400)
-              .json({
-                success: false,
-                message: "Can only update inprogress requests",
-              });
+            return res.status(400).json({
+              success: false,
+              message: "Can only update inprogress requests",
+            });
           }
         }
 
