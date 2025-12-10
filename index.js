@@ -574,7 +574,7 @@ app.post("/api/funding/record-payment", async (req, res) => {
   }
 });
 
-// GET /api/funding
+// funding
 app.get("/api/funding", async (req, res) => {
   try {
     const db = client.db("bloodAidDB");
@@ -586,6 +586,29 @@ app.get("/api/funding", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch funds" });
   }
 });
+//funding total
+app.get("/api/funding/total", async (req, res) => {
+  try {
+    const db = client.db("bloodAidDB");
+    const fundsCollection = db.collection("funds");
+
+    const result = await fundsCollection.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$amount" }
+        }
+      }
+    ]).toArray();
+
+    const total = result[0]?.total || 0;
+    res.json({ total });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch total funds" });
+  }
+});
+
 
 
 
